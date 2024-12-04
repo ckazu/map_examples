@@ -253,5 +253,28 @@ document.getElementById('max-cells-slider').addEventListener('input', (event) =>
   hexagonMap.setMaxCells(maxCells);
 });
 
+document.getElementById('locate-btn').addEventListener('click', () => {
+  if ('geolocation' in navigator) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+
+        // 地図を現在位置に移動
+        map.setView([latitude, longitude], CONFIG.DEFAULT_ZOOM);
+
+        // 現在位置にマーカーを追加
+        L.marker([latitude, longitude]).addTo(map)
+          .bindPopup('現在位置')
+          .openPopup();
+      },
+      (error) => {
+        alert('位置情報を取得できませんでした: ' + error.message);
+      }
+    );
+  } else {
+    alert('このブラウザではGPSがサポートされていません');
+  }
+});
+
 updateZoomLevel();
 hexagonMap.drawHexagons();
