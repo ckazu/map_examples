@@ -276,5 +276,13 @@ document.getElementById('locate-btn').addEventListener('click', () => {
   }
 });
 
+const controlsContainer = document.getElementById('controls-container');
+const toggleBtn = document.getElementById('toggle-controls-btn');
+
+toggleBtn.addEventListener('click', () => {
+  const isHidden = controlsContainer.classList.toggle('hidden');
+  toggleBtn.textContent = isHidden ? '▼' : '▲';
+});
+
 updateZoomLevel();
 hexagonMap.drawHexagons();

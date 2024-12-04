@@ -10,45 +10,50 @@
 </head>
 
 <body>
-    <div id="controls">
-        最大セル数: <span id="max-cells-value">30</span>
-        <input type="range" id="max-cells-slider" min="1" max="100" value="30">
-        <div id="resolution-options">
-            セル解像度:
-            <label><input type="checkbox" class="resolution-checkbox" value="1"> 1</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="2"> 2</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="3"> 3</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="4"> 4</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="5"> 5</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="6"> 6</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="7"> 7</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="8" checked> 8</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="9"> 9</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="10"> 10</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="11"> 11</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="12"> 12</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="13"> 13</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="14"> 14</label>
-            <label><input type="checkbox" class="resolution-checkbox" value="15"> 15</label>
+    <div id="map"></div>
+
+    <button id="toggle-controls-btn">▲</button>
+    <div id="controls-container">
+        <div id="controls">
+
+            最大セル数: <span id="max-cells-value">30</span>
+            <input type="range" id="max-cells-slider" min="1" max="100" value="30">
+            <div id="resolution-options">
+                セル解像度:
+                <label><input type="checkbox" class="resolution-checkbox" value="1"> 1</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="2"> 2</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="3"> 3</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="4"> 4</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="5"> 5</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="6"> 6</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="7"> 7</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="8" checked> 8</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="9"> 9</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="10"> 10</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="11"> 11</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="12"> 12</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="13"> 13</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="14"> 14</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="15"> 15</label>
+            </div>
+            <label>
+                <input type="checkbox" id="show-fill-color-checkbox" checked>
+                塗りつぶし
+            </label>
+            <label>
+                <input type="checkbox" id="show-index-checkbox">
+                Cell Index
+            </label>
+            <label>
+                <input type="checkbox" id="show-coordinates-checkbox">
+                [激重] 頂点座標
+            </label>
+            <br />
+            マップズームレベル: <span id="zoom-level">18</span>
+            <br />
+            <button id="locate-btn">現在位置に移動</button>
         </div>
-        <label>
-            <input type="checkbox" id="show-fill-color-checkbox" checked>
-            塗りつぶし
-        </label>
-        <label>
-            <input type="checkbox" id="show-index-checkbox">
-            Cell Index
-        </label>
-        <label>
-            <input type="checkbox" id="show-coordinates-checkbox">
-            [激重] 頂点座標
-        </label>
-        <br />
-        マップズームレベル: <span id="zoom-level">18</span>
-        <br />
-        <button id="locate-btn">現在位置に移動</button>
     </div>
-    <div id="map" style="width: 100%; height: 90vh;"></div>
 
     <script src="./libs/h3-js.umd.js"></script> <!-- ローカルのH3.js -->
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
