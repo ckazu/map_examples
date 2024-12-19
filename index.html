@@ -15,6 +15,9 @@
     <button id="toggle-controls-btn">▲</button>
     <div id="controls-container">
         <div id="controls">
+            <label><input type="radio" name="mode" value="H3" checked>H3</label>
+            <label><input type="radio" name="mode" value="S2">S2</label>
+            <br/>
 
             最大セル数: <span id="max-cells-value">30</span>
             <input type="range" id="max-cells-slider" min="1" max="100" value="30">
@@ -55,7 +58,8 @@
         </div>
     </div>
 
-    <script src="./libs/h3-js.umd.js"></script> <!-- ローカルのH3.js -->
+    <script src="./libs/h3-js.umd.js"></script>
+    <script src="./libs/s2.js"></script>
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="./scripts/main.js"></script>
 </body>

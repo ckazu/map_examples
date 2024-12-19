@@ -24,6 +24,7 @@ class HexagonMap {
     this.showIndex = config.SHOW_INDEX;
     this.showCoordinates = config.SHOW_COORDINATES;
     this.colorMap = new Map();
+    this.mode = 'H3';
   }
 
   static normalizeLongitudeTo360(boundary) {
@@ -37,6 +38,95 @@ class HexagonMap {
     this.currentHexagons.forEach(layer => this.map.removeLayer(layer));
     this.currentHexagons = [];
 
+    if (this.mode === 'H3') {
+      this.drawH3Hexagons();
+    } else if (this.mode === 'S2') {
+      this.drawS2Cells();
+    }
+  }
+
+  drawS2Cells() {
+    const center = this.map.getCenter();
+    const centerLat = center.lat;
+    const centerLng = center.lng;
+
+    const sortedResolutions = [...this.resolutions].sort((a, b) => a - b);
+    this.highestResolution = Math.max(...this.resolutions);
+
+    if (sortedResolutions.length > 1) {
+      const lowestResolution = sortedResolutions[0];
+      const latLng = S2LatLng.from(centerLat, centerLng);
+      const cell = S2Cell.fromLatLng(latLng, lowestResolution);
+      const baseCells = this.getS2Neighbors(cell, this.maxCells);
+
+      this.colorMap.clear();
+      baseCells.forEach(baseCell => {
+        const baseKey = baseCell.toInteger();
+        this.colorMap.set(baseKey, this.getRandomColor());
+      });
+    }
+
+    sortedResolutions.forEach(resolution => {
+      const latLng = S2LatLng.from(centerLat, centerLng);
+      const cell = S2Cell.fromLatLng(latLng, resolution);
+      const cells = this.getS2Neighbors(cell, this.maxCells);
+
+      cells.forEach(currentCell => {
+        console.log(currentCell);
+        const corners = Array.from(currentCell.getCornerLatLngs());
+        console.log(corners);
+
+        const scaledCorners = this.scaleBoundary(
+          corners.map(corner => [corner.lng, corner.lat]),
+          0.99
+        );
+
+        let fillColor;
+        if (sortedResolutions.length > 1) {
+          const baseCell = currentCell.move(0);
+          const baseKey = baseCell.toInteger();
+          fillColor = this.colorMap.get(baseKey) || this.getRandomColor();
+        } else {
+          fillColor = this.getRandomColor();
+        }
+
+        const polygon = scaledCorners.map(([lng, lat]) => [lat, lng]);
+        this.addPolygon(polygon, fillColor);
+
+        if (this.showIndex) {
+          const center = currentCell.toLatLng();
+          this.addIndexMarker([center.lat, center.lng], currentCell.toInteger());
+        }
+      });
+    });
+  }
+
+  getS2Neighbors(cell, maxCells) {
+    const neighbors = [cell];
+    const visited = new Set();
+    visited.add(cell.toInteger());
+
+    const queue = [cell];
+    while (queue.length > 0 && neighbors.length < maxCells) {
+      const current = queue.shift();
+
+      for (const neighbor of current.getNeighbors()) {
+        const neighborId = neighbor.toInteger();
+        if (!visited.has(neighborId)) {
+          neighbors.push(neighbor);
+          queue.push(neighbor);
+          visited.add(neighborId);
+        }
+
+        if (neighbors.length >= maxCells) {
+          break;
+        }
+      }
+    }
+    return neighbors;
+  }
+
+  drawH3Hexagons() {
     const center = this.map.getCenter();
     const centerLat = center.lat;
     const centerLng = center.lng;
@@ -170,6 +260,11 @@ class HexagonMap {
     return this.config.COLORS[Math.floor(Math.random() * this.config.COLORS.length)];
   }
 
+  setMode(mode) {
+    this.mode = mode;
+    this.drawHexagons();
+  }
+
   setResolution(newResolution) {
     this.resolution = newResolution;
     this.drawHexagons();
@@ -182,17 +277,6 @@ class HexagonMap {
 
   toggleIndexDisplay(value) {
     this.showIndex = value;
-    this.drawHexagons();
-  }
-
-  toggleCoordinatesDisplay(value) {
-    this.showCoordinates = value;
-    this.drawHexagons();
-  }
-
-  // 解像度の設定を変更
-  setResolutions(newResolutions) {
-    this.resolutions = newResolutions;
     this.drawHexagons();
   }
 }
@@ -225,6 +309,13 @@ map.on('zoomend', updateZoomLevel);
 map.on('click', (e) => {
   const { lat, lng } = e.latlng;
   hexagonMap.handleMapClick(lat, lng);
+});
+
+document.querySelectorAll('input[name="mode"]').forEach(radio => {
+  radio.addEventListener('change', (event) => {
+    const selectedMode = event.target.value;
+    hexagonMap.setMode(selectedMode);
+  });
 });
 
 document.querySelectorAll('.resolution-checkbox').forEach(checkbox => {
