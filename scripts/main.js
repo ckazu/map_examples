@@ -1,11 +1,11 @@
 const CONFIG = {
   DEFAULT_LAT: 35.68963,
   DEFAULT_LNG: 139.69165,
-  DEFAULT_ZOOM: 16,
+  DEFAULT_ZOOM: 19,
   MIN_ZOOM: 1,
   MAX_ZOOM: 22,
-  DEFAULT_RESOLUTION: 8,
-  MAX_CELLS: 30,
+  DEFAULT_RESOLUTION: 17,
+  MAX_CELLS: 100,
   COLORS: ['green', 'red', 'blue', 'purple', 'orange'],
   SHOW_FILL_COLOR: true,
   SHOW_INDEX: false,
@@ -24,7 +24,7 @@ class HexagonMap {
     this.showIndex = config.SHOW_INDEX;
     this.showCoordinates = config.SHOW_COORDINATES;
     this.colorMap = new Map();
-    this.mode = 'H3';
+    this.mode = 'S2';
   }
 
   static normalizeLongitudeTo360(boundary) {
@@ -302,6 +302,29 @@ function addMarkerAtHexCenter(lat, lng) {
   L.marker([centerLat, centerLng]).addTo(map);
 }
 
+function moveToCurrentLocation() {
+  if ('geolocation' in navigator) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+
+        // 地図を現在位置に移動
+        map.setView([latitude, longitude], CONFIG.DEFAULT_ZOOM);
+
+        // 現在位置にマーカーを追加
+        L.marker([latitude, longitude]).addTo(map)
+          .bindPopup('現在位置')
+          .openPopup();
+      },
+      (error) => {
+        alert('位置情報を取得できませんでした: ' + error.message);
+      }
+    );
+  } else {
+    alert('このブラウザではGPSがサポートされていません');
+  }
+}
+
 const hexagonMap = new HexagonMap(map, CONFIG);
 
 map.on('moveend', () => { hexagonMap.drawHexagons(); });
@@ -344,28 +367,7 @@ document.getElementById('max-cells-slider').addEventListener('input', (event) =>
   hexagonMap.setMaxCells(maxCells);
 });
 
-document.getElementById('locate-btn').addEventListener('click', () => {
-  if ('geolocation' in navigator) {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-
-        // 地図を現在位置に移動
-        map.setView([latitude, longitude], CONFIG.DEFAULT_ZOOM);
-
-        // 現在位置にマーカーを追加
-        L.marker([latitude, longitude]).addTo(map)
-          .bindPopup('現在位置')
-          .openPopup();
-      },
-      (error) => {
-        alert('位置情報を取得できませんでした: ' + error.message);
-      }
-    );
-  } else {
-    alert('このブラウザではGPSがサポートされていません');
-  }
-});
+document.getElementById('locate-btn').addEventListener('click', () => { moveToCurrentLocation(); });
 
 const controlsContainer = document.getElementById('controls-container');
 const toggleBtn = document.getElementById('toggle-controls-btn');
@@ -377,3 +379,4 @@ toggleBtn.addEventListener('click', () => {
 
 updateZoomLevel();
 hexagonMap.drawHexagons();
+moveToCurrentLocation();
