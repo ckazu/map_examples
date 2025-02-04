@@ -19,8 +19,8 @@
             <label><input type="radio" name="mode" value="S2" checked>S2</label>
             <br />
 
-            最大セル数: <span id="max-cells-value">30</span>
-            <input type="range" id="max-cells-slider" min="1" max="100" value="30">
+            最大セル数: <span id="max-cells-value">100</span>
+            <input type="range" id="max-cells-slider" min="1" max="1000" value="100">
             <div id="resolution-options">
                 セル解像度:
                 <label><input type="checkbox" class="resolution-checkbox" value="1"> 1</label>
@@ -41,8 +41,8 @@
                 <label><input type="checkbox" class="resolution-checkbox" value="16"> 16</label>
                 <label><input type="checkbox" class="resolution-checkbox" value="17" checked> 17</label>
                 <label><input type="checkbox" class="resolution-checkbox" value="18"> 18</label>
-                <label><input type="checkbox" class="resolution-checkbox" value="18"> 19</label>
-                <label><input type="checkbox" class="resolution-checkbox" value="18"> 20</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="19"> 19</label>
+                <label><input type="checkbox" class="resolution-checkbox" value="20"> 20</label>
             </div>
             <label>
                 <input type="checkbox" id="show-fill-color-checkbox" checked>
@@ -59,7 +59,11 @@
             <br />
             マップズームレベル: <span id="zoom-level">18</span>
             <br />
-            <button id="locate-btn">現在位置に移動</button>
+            <button id="locate-sjk-btn">新宿に移動</button>
+            <button id="locate-current-btn">現在位置に移動</button>
+            <br />
+            <button id="reset-btn">取得情報をリセットする</button>
+
         </div>
     </div>
 
