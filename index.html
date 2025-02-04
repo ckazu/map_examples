@@ -15,13 +15,16 @@
     <button id="toggle-controls-btn">▲</button>
     <div id="controls-container">
         <div id="controls">
-            <label><input type="radio" name="mode" value="H3">H3</label>
-            <label><input type="radio" name="mode" value="S2" checked>S2</label>
+            <button id="reset-btn">取得情報をリセットする</button>
             <br />
-
-            最大セル数: <span id="max-cells-value">100</span>
+            <!-- <label><input type="radio" name="mode" value="H3">H3</label>
+            <label><input type="radio" name="mode" value="S2" checked>S2</label>
+            <br /> -->
+            一度に取得するセル数
+            <br />
+            <span id="max-cells-value">100</span>
             <input type="range" id="max-cells-slider" min="1" max="1000" value="100">
-            <div id="resolution-options">
+            <!-- <div id="resolution-options">
                 セル解像度:
                 <label><input type="checkbox" class="resolution-checkbox" value="1"> 1</label>
                 <label><input type="checkbox" class="resolution-checkbox" value="2"> 2</label>
@@ -55,15 +58,16 @@
             <label>
                 <input type="checkbox" id="show-coordinates-checkbox">
                 [激重] 頂点座標
-            </label>
+            </label> -->
             <br />
             マップズームレベル: <span id="zoom-level">18</span>
             <br />
             <button id="locate-sjk-btn">新宿に移動</button>
             <button id="locate-current-btn">現在位置に移動</button>
-            <br />
-            <button id="reset-btn">取得情報をリセットする</button>
-
+            <form id="search-form">
+                <input type="text" id="search-input" placeholder="地点を検索">
+                <button type="submit">位置を検索</button>
+            </form>
         </div>
     </div>
 

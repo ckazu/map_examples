@@ -116,6 +116,10 @@ class HexagonMap {
       // draw cells
       for (const currentCell of cells) {
         const cell_id = currentCell.toInteger().toString();
+        if (this.currentHexagons.find(polygon => polygon.options.cell_id === cell_id)) {
+          continue;
+        }
+
         const corners = Array.from(currentCell.getCornerLatLngs());
 
         const scaledCorners = this.scaleBoundary(
@@ -138,6 +142,7 @@ class HexagonMap {
         }
       }
     }
+    console.log(this.currentHexagons.length);
   }
 
   getS2Neighbors(cell, maxCells) {
@@ -259,12 +264,12 @@ class HexagonMap {
 
     if (stats) {
       const center = polygon.getBounds().getCenter();
-      const content = `Lv. ${stats.level} (${stats.score})`;
+      const content = `Lv. ${stats.level}<br/>${stats.score}`;
       const statsIcon = L.divIcon({
         className: 'stats-marker',
         html: `<pre style="margin:0;">${content}</pre>`,
         iconSize: [100, 50],
-        iconAnchor: [50, 25]
+        iconAnchor: [20, 10]
       });
       const marker = L.marker(center, {
         icon: statsIcon,
@@ -417,32 +422,32 @@ map.on('click', (e) => {
   hexagonMap.handleMapClick(lat, lng);
 });
 
-document.querySelectorAll('input[name="mode"]').forEach(radio => {
-  radio.addEventListener('change', (event) => {
-    const selectedMode = event.target.value;
-    hexagonMap.setMode(selectedMode);
-  });
-});
+// document.querySelectorAll('input[name="mode"]').forEach(radio => {
+//   radio.addEventListener('change', (event) => {
+//     const selectedMode = event.target.value;
+//     hexagonMap.setMode(selectedMode);
+//   });
+// });
 
-document.querySelectorAll('.resolution-checkbox').forEach(checkbox => {
-  checkbox.addEventListener('change', () => {
-    const selectedResolutions = Array.from(document.querySelectorAll('.resolution-checkbox:checked'))
-      .map(input => parseInt(input.value, 10));
-    hexagonMap.setResolutions(selectedResolutions);
-  });
-});
+// document.querySelectorAll('.resolution-checkbox').forEach(checkbox => {
+//   checkbox.addEventListener('change', () => {
+//     const selectedResolutions = Array.from(document.querySelectorAll('.resolution-checkbox:checked'))
+//       .map(input => parseInt(input.value, 10));
+//     hexagonMap.setResolutions(selectedResolutions);
+//   });
+// });
 
-document.getElementById('show-fill-color-checkbox').addEventListener('change', (event) => {
-  hexagonMap.toggleFillColorDisplay(event.target.checked);
-});
+// document.getElementById('show-fill-color-checkbox').addEventListener('change', (event) => {
+//   hexagonMap.toggleFillColorDisplay(event.target.checked);
+// });
 
-document.getElementById("show-index-checkbox").addEventListener("change", (event) => {
-  hexagonMap.toggleIndexDisplay(event.target.checked);
-});
+// document.getElementById("show-index-checkbox").addEventListener("change", (event) => {
+//   hexagonMap.toggleIndexDisplay(event.target.checked);
+// });
 
-document.getElementById("show-coordinates-checkbox").addEventListener("change", (event) => {
-  hexagonMap.toggleCoordinatesDisplay(event.target.checked);
-});
+// document.getElementById("show-coordinates-checkbox").addEventListener("change", (event) => {
+//   hexagonMap.toggleCoordinatesDisplay(event.target.checked);
+// });
 
 document.getElementById('max-cells-slider').addEventListener('input', (event) => {
   const maxCells = parseInt(event.target.value, 10);
@@ -453,8 +458,46 @@ document.getElementById('max-cells-slider').addEventListener('input', (event) =>
 document.getElementById('locate-sjk-btn').addEventListener('click', () => { moveToLocation(hexagonMap.config.DEFAULT_LAT, hexagonMap.config.DEFAULT_LNG); });
 document.getElementById('locate-current-btn').addEventListener('click', () => { moveToCurrentLocation(); });
 
-document.getElementById('reset-btn').addEventListener('click', () => {
-  hexagonMap.resetCellsAndMarkers();
+document.getElementById('reset-btn').addEventListener('click', () => { hexagonMap.resetCellsAndMarkers(); });
+
+document.getElementById('search-form').addEventListener('submit', async (e) => {
+  e.preventDefault(); // フォーム送信によるページリロードを防ぐ
+
+  const query = document.getElementById('search-input').value;
+  if (!query) {
+    alert('検索ワードを入力してください。');
+    return;
+  }
+
+  try {
+    // Nominatim API を利用したジオコーディング
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+    const results = await response.json();
+    if (results.length === 0) {
+      alert('該当する地点が見つかりませんでした。');
+      return;
+    }
+    // 最初の検索結果を利用（複数候補がある場合は、リスト表示や選択肢を設けるなどの工夫も可能）
+    const result = results[0];
+    const lat = parseFloat(result.lat);
+    const lon = parseFloat(result.lon);
+
+    // 地図の中心を検索結果の位置に設定
+    map.setView([lat, lon], CONFIG.DEFAULT_ZOOM);
+
+    // 移動先にマーカーを追加（必要に応じて）
+    L.marker([lat, lon])
+      .addTo(map)
+      .bindPopup(`${result.display_name}`)
+      .openPopup();
+  } catch (error) {
+    console.error('検索中にエラーが発生しました:', error);
+    alert('検索中にエラーが発生しました。');
+  }
 });
 
 const controlsContainer = document.getElementById('controls-container');
@@ -474,6 +517,9 @@ class Api {
 
   async getCells(cell_ids) {
     const data = { cell_id: cell_ids };
+    if (cell_ids.length === 0) {
+      return [];
+    }
 
     try {
       const response = await fetch(
