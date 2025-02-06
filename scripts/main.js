@@ -6,7 +6,7 @@ const CONFIG = {
   MAX_ZOOM: 22,
   DEFAULT_RESOLUTION: 17,
   MAX_CELLS: 100,
-  COLORS: ['pink', 'cyan', 'blue', 'pink'],
+  COLORS: ['khaki', 'cyan', 'blue', 'pink'],
   SHOW_FILL_COLOR: true,
   SHOW_INDEX: false,
   SHOW_COORDINATES: false,
@@ -132,6 +132,9 @@ class HexagonMap {
         let fillColor = 'transparent';
         if (cell_stats) {
           fillColor = this.config.COLORS[cell_stats.level];
+          if (cell_stats.level === 0 && cell_stats.score <= 0) {
+            fillColor = 'gray';
+          }
         }
         const polygon = scaledCorners.map(([lng, lat]) => [lat, lng]);
         this.addPolygon(cell_id, polygon, fillColor, stats);
@@ -264,7 +267,7 @@ class HexagonMap {
 
     if (stats) {
       const center = polygon.getBounds().getCenter();
-      const content = `Lv. ${stats.level}<br/>${stats.score}`;
+      const content = `level ${stats.level}<br/>score ${stats.score}`;
       const statsIcon = L.divIcon({
         className: 'stats-marker',
         html: `<pre style="margin:0;">${content}</pre>`,
