@@ -13,8 +13,8 @@ const CONFIG = {
 };
 
 class CellMap {
-  constructor(base_map, config) {
-    this.map = base_map.map;
+  constructor(map, config) {
+    this.map = map;
     this.config = config;
     this.resolution = config.DEFAULT_RESOLUTION;
     this.maxCells = config.MAX_CELLS;
@@ -44,12 +44,9 @@ class CellMap {
       return;
     }
     this.isDrawing = true;
+    this.currentCells.forEach(polygon => polygon.closeTooltip());
 
-    this.currentCells.forEach(polygon => {
-      polygon.closeTooltip();
-    });
-
-    const drawProcess = async () => {
+    (async () => {
       try {
         await this.drawS2Cells();
       } catch (error) {
@@ -57,66 +54,56 @@ class CellMap {
       } finally {
         this.isDrawing = false;
       }
-    };
-    drawProcess();
+    })();
   }
 
   async drawS2Cells() {
     const api = new Api();
-
     const center = this.map.getCenter();
-    const centerLat = center.lat;
-    const centerLng = center.lng;
-
-    const latLng = S2LatLng.from(centerLat, centerLng);
+    const latLng = S2LatLng.from(center.lat, center.lng);
     const cell = S2Cell.fromLatLng(latLng, this.resolution);
     const cells = this.getS2Neighbors(cell, this.maxCells);
-    const cell_ids = cells.map(cell => cell.toInteger().toString());
+    const cellIds = cells.map(c => c.toInteger().toString());
 
-    // API request
-    const fetch_cell_ids = cell_ids.filter(cell_id => {
-      return !this.currentCells.some(polygon => polygon.options.cell_id === cell_id);
-    });
-    const cells_stats = await api.getCells(fetch_cell_ids);
+    // APIリクエスト：まだ描画されていないセルIDのみ対象
+    const fetchCellIds = cellIds.filter(id =>
+      !this.currentCells.some(polygon => polygon.options.cellId === id)
+    );
+    const cellsStats = await api.getCells(fetchCellIds);
 
-    // draw cells
-    for (const currentCell of cells) {
-      const cell_id = currentCell.toInteger().toString();
-      if (this.currentCells.find(polygon => polygon.options.cell_id === cell_id)) {
-        continue;
-      }
+    cells.forEach(currentCell => {
+      const cellId = currentCell.toInteger().toString();
+      if (this.currentCells.find(polygon => polygon.options.cellId === cellId)) return;
 
-      const cell_stats = cells_stats.find(cell => cell.cell_id === cell_id);
+      const cellStats = cellsStats.find(stat => stat.cell_id === cellId);
       let fillColor = 'transparent';
-      if (cell_stats) {
-        fillColor = this.config.COLORS[cell_stats.level];
-        if (cell_stats.level === 0 && cell_stats.score <= 0) {
+      if (cellStats) {
+        fillColor = this.config.COLORS[cellStats.level] || fillColor;
+        if (cellStats.level === 0 && cellStats.score <= 0) {
           fillColor = 'gray';
         }
       }
 
-      // ちょっとだけセルを小さくする
+      // セルの境界を若干縮小して重なりを防止
       const corners = Array.from(currentCell.getCornerLatLngs());
       const scaledCorners = this.scaleBoundary(
         corners.map(corner => [corner.lng, corner.lat]),
         0.99
       );
-      // セルの描画
-      const polygon = scaledCorners.map(([lng, lat]) => [lat, lng]);
-      this.addPolygon(cell_id, polygon, fillColor, cell_stats);
-    }
-    console.log("current cells:", this.currentCells.length);
+      const polygonLatLngs = scaledCorners.map(([lng, lat]) => [lat, lng]);
+      this.addPolygon(cellId, polygonLatLngs, fillColor, cellStats);
+    });
+
+    console.log("現在のセル数:", this.currentCells.length);
   }
 
   getS2Neighbors(cell, maxCells) {
     const neighbors = [cell];
-    const visited = new Set();
-    visited.add(cell.toInteger());
-
+    const visited = new Set([cell.toInteger()]);
     const queue = [cell];
+
     while (queue.length > 0 && neighbors.length < maxCells) {
       const current = queue.shift();
-
       for (const neighbor of current.getNeighbors()) {
         const neighborId = neighbor.toInteger();
         if (!visited.has(neighborId)) {
@@ -124,10 +111,7 @@ class CellMap {
           queue.push(neighbor);
           visited.add(neighborId);
         }
-
-        if (neighbors.length >= maxCells) {
-          break;
-        }
+        if (neighbors.length >= maxCells) break;
       }
     }
     return neighbors;
@@ -145,20 +129,19 @@ class CellMap {
   getPolygonCenter(boundary) {
     const total = boundary.length;
     const sum = boundary.reduce(
-      (acc, [lng, lat]) => [acc[0] + lng, acc[1] + lat],
+      ([sumLng, sumLat], [lng, lat]) => [sumLng + lng, sumLat + lat],
       [0, 0]
     );
     return [sum[0] / total, sum[1] / total];
   }
 
-  addPolygon(cell_id, latlngs, color, stats) {
-    let fillColor = color;
+  addPolygon(cellId, latlngs, color, stats) {
     const polygon = L.polygon(latlngs, {
-      cell_id: cell_id,
+      cellId: cellId,
       stats: stats,
       color: "gray",
       opacity: 0.5,
-      fillColor: fillColor,
+      fillColor: color,
       fillOpacity: 0.4,
       weight: 1.5,
     }).addTo(this.map);
@@ -174,24 +157,19 @@ class CellMap {
         iconSize: [100, 50],
         iconAnchor: [20, 10]
       });
-      const marker = L.marker(center, {
-        icon: statsIcon,
-        interactive: false
-      }).addTo(this.map);
+      const marker = L.marker(center, { icon: statsIcon, interactive: false }).addTo(this.map);
       polygon.statsMarker = marker;
 
-      polygon.on('mouseover', (e) => {
-        const content = typeof stats === 'object' ? JSON.stringify(stats, null, 2) : stats;
-        polygon.bindTooltip(`<pre>${content}</pre>`, {
+      polygon.on('mouseover', e => {
+        const tooltipContent = typeof stats === 'object' ? JSON.stringify(stats, null, 2) : stats;
+        polygon.bindTooltip(`<pre>${tooltipContent}</pre>`, {
           permanent: false,
           direction: 'top',
           className: 'stats-tooltip'
         }).openTooltip(e.latlng);
       });
 
-      polygon.on('mouseout', () => {
-        polygon.closeTooltip();
-      });
+      polygon.on('mouseout', () => polygon.closeTooltip());
     }
   }
 }
@@ -211,27 +189,22 @@ class BaseMap {
 
   updateZoomLevel() {
     const zoomLevel = this.map.getZoom();
-    document.getElementById('zoom-level').textContent = zoomLevel;
-  }
-
-  setMaxCells(newMaxCells) {
-    cellMap.maxCells = newMaxCells;
-    cellMap.drawCells();
+    const zoomLevelElement = document.getElementById('zoom-level');
+    if (zoomLevelElement) {
+      zoomLevelElement.textContent = zoomLevel;
+    }
   }
 
   async moveToCurrentLocation() {
     if ('geolocation' in navigator) {
       try {
-        const position = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject);
-        });
+        const position = await new Promise((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject)
+        );
         const { latitude, longitude } = position.coords;
-
-        // 地図を現在位置に移動
         this.map.setView([latitude, longitude], CONFIG.DEFAULT_ZOOM);
-
-        // 現在位置にマーカーを追加
-        L.marker([latitude, longitude]).addTo(this.map)
+        L.marker([latitude, longitude])
+          .addTo(this.map)
           .bindPopup('現在位置')
           .openPopup();
       } catch (error) {
@@ -242,41 +215,31 @@ class BaseMap {
     }
   }
 
-  async moveToLocation(lat, lng) {
+  moveToLocation(lat, lng) {
     this.map.setView([lat, lng]);
   }
 }
 
-// === API
 class Api {
   constructor() {
     this.url = CONFIG.PROXY_URL;
   }
 
-  async getCells(cell_ids) {
-    const data = { cell_id: cell_ids };
-    if (cell_ids.length === 0) {
-      return [];
-    }
+  async getCells(cellIds) {
+    if (cellIds.length === 0) return [];
+    const data = { cell_id: cellIds };
 
     try {
-      console.log("API request. fetch new cell length:", cell_ids.length);
-      const response = await fetch(
-        this.url,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(data)
-        }
-      );
+      console.log(`API request: 新規セル ${cellIds.length} 件の取得`);
+      const response = await fetch(this.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
       }
-
-      const result = await response.json();
-      return result;
+      return await response.json();
     } catch (error) {
       return [];
     }
@@ -285,81 +248,106 @@ class Api {
 
 class UiController {
   constructor(baseMap, cellMap) {
-    this.addEventListeners(baseMap, cellMap);
+    this.baseMap = baseMap;
+    this.cellMap = cellMap;
+    this.initializeEventListeners();
   }
 
-  addEventListeners(baseMap, cellMap) {
-    baseMap.map.on('moveend', () => { cellMap.drawCells(); });
-    baseMap.map.on('zoomend', () => { baseMap.updateZoomLevel() });
+  initializeEventListeners() {
+    const mapInstance = this.baseMap.map;
+    mapInstance.on('moveend', () => this.cellMap.drawCells());
+    mapInstance.on('zoomend', () => this.baseMap.updateZoomLevel());
 
     const toggleBtn = document.getElementById('toggle-controls-btn');
-    toggleBtn.addEventListener('click', () => {
-      const controlsContainer = document.getElementById('controls-container');
-      const isHidden = controlsContainer.classList.toggle('hidden');
-      toggleBtn.textContent = isHidden ? '▼' : '▲';
-    });
-
-    document.getElementById('locate-sjk-btn').addEventListener('click', () => {
-      baseMap.moveToLocation(cellMap.config.DEFAULT_LAT, cellMap.config.DEFAULT_LNG);
-    });
-    document.getElementById('locate-current-btn').addEventListener('click', () => {
-      baseMap.moveToCurrentLocation();
-    });
-    document.getElementById('reset-btn').addEventListener('click', () => {
-      cellMap.resetCellsAndMarkers();
-    });
-    document.getElementById('max-cells-slider').addEventListener('input', (event) => {
-      const maxCells = parseInt(event.target.value, 10);
-      document.getElementById('max-cells-value').textContent = maxCells;
-      baseMap.setMaxCells(maxCells);
-    });
-    document.getElementById('search-form').addEventListener('submit', async (e) => {
-      e.preventDefault(); // フォーム送信によるページリロードを防ぐ
-      const query = document.getElementById('search-input').value;
-      if (!query) {
-        alert('検索ワードを入力してください。');
-        return;
-      }
-
-      try {
-        // Nominatim API を利用したジオコーディング
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`HTTP error! Status: ${response.status}`);
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        const controlsContainer = document.getElementById('controls-container');
+        if (controlsContainer) {
+          const isHidden = controlsContainer.classList.toggle('hidden');
+          toggleBtn.textContent = isHidden ? '▼' : '▲';
         }
-        const results = await response.json();
-        if (results.length === 0) {
-          alert('該当する地点が見つかりませんでした。');
+      });
+    }
+
+    const locateSjkBtn = document.getElementById('locate-sjk-btn');
+    if (locateSjkBtn) {
+      locateSjkBtn.addEventListener('click', () => {
+        this.baseMap.moveToLocation(this.cellMap.config.DEFAULT_LAT, this.cellMap.config.DEFAULT_LNG);
+      });
+    }
+
+    const locateCurrentBtn = document.getElementById('locate-current-btn');
+    if (locateCurrentBtn) {
+      locateCurrentBtn.addEventListener('click', () => {
+        this.baseMap.moveToCurrentLocation();
+      });
+    }
+
+    const resetBtn = document.getElementById('reset-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        this.cellMap.resetCellsAndMarkers();
+      });
+    }
+
+    const maxCellsSlider = document.getElementById('max-cells-slider');
+    if (maxCellsSlider) {
+      maxCellsSlider.addEventListener('input', event => {
+        const newMaxCells = parseInt(event.target.value, 10);
+        const maxCellsValue = document.getElementById('max-cells-value');
+        if (maxCellsValue) {
+          maxCellsValue.textContent = newMaxCells;
+        }
+        this.cellMap.maxCells = newMaxCells;
+        this.cellMap.drawCells();
+      });
+    }
+
+    const searchForm = document.getElementById('search-form');
+    if (searchForm) {
+      searchForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        const queryInput = document.getElementById('search-input');
+        const query = queryInput ? queryInput.value : '';
+        if (!query) {
+          alert('検索ワードを入力してください。');
           return;
         }
-        // 最初の検索結果を利用（複数候補がある場合は、リスト表示や選択肢を設けるなどの工夫も可能）
-        const result = results[0];
-        const lat = parseFloat(result.lat);
-        const lon = parseFloat(result.lon);
 
-        // 地図の中心を検索結果の位置に設定
-        const map = baseMap.map;
-        map.setView([lat, lon], CONFIG.DEFAULT_ZOOM);
-
-        // 移動先にマーカーを追加（必要に応じて）
-        L.marker([lat, lon])
-          .addTo(map)
-          .bindPopup(`${result.display_name}`)
-          .openPopup();
-      } catch (error) {
-        console.error('検索中にエラーが発生しました:', error);
-        alert('検索中にエラーが発生しました。');
-      }
-    });
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+          const results = await response.json();
+          if (!results.length) {
+            alert('該当する地点が見つかりませんでした。');
+            return;
+          }
+          const result = results[0];
+          const lat = parseFloat(result.lat);
+          const lng = parseFloat(result.lon);
+          this.baseMap.moveToLocation(lat, lng);
+          L.marker([lat, lng])
+            .addTo(this.baseMap.map)
+            .bindPopup(result.display_name)
+            .openPopup();
+        } catch (error) {
+          console.error('検索中にエラーが発生しました:', error);
+          alert('検索中にエラーが発生しました。');
+        }
+      });
+    }
   }
 }
 
-// === main routine
-const baseMap = new BaseMap(CONFIG);
-const cellMap = new CellMap(baseMap, CONFIG);
-const uiController = new UiController(baseMap, cellMap);
+// main routine
+document.addEventListener('DOMContentLoaded', () => {
+  const baseMap = new BaseMap(CONFIG);
+  const cellMap = new CellMap(baseMap.map, CONFIG);
+  new UiController(baseMap, cellMap);
 
-// 起動時に取得する
-baseMap.updateZoomLevel();
-cellMap.drawCells();
+  baseMap.updateZoomLevel();
+  cellMap.drawCells();
+});
