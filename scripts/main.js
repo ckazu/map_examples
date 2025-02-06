@@ -7,35 +7,22 @@ const CONFIG = {
   DEFAULT_RESOLUTION: 17,
   MAX_CELLS: 100,
   COLORS: ['khaki', 'cyan', 'blue', 'pink'],
-  SHOW_FILL_COLOR: true,
-  SHOW_INDEX: false,
-  SHOW_COORDINATES: false,
+  // TILE_LAYER: {url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', copyright: "© OpenStreetMap contributors"},
+  TILE_LAYER: { url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', copyright: "© OpenStreetMap contributors" },
 };
 
-class HexagonMap {
+class CellMap {
   constructor(map, config) {
     this.map = map;
     this.config = config;
-    this.currentHexagons = [];
-    this.resolutions = [config.DEFAULT_RESOLUTION];
-    this.highestResolution = config.DEFAULT_RESOLUTION;
+    this.resolution = config.DEFAULT_RESOLUTION;
     this.maxCells = config.MAX_CELLS;
-    this.showFillColor = config.SHOW_FILL_COLOR;
-    this.showIndex = config.SHOW_INDEX;
-    this.showCoordinates = config.SHOW_COORDINATES;
-    this.colorMap = new Map();
-    this.mode = 'S2';
-  }
-
-  static normalizeLongitudeTo360(boundary) {
-    return boundary.map(([lng, lat]) => {
-      if (lng < 0) lng += 360;
-      return [lng, lat];
-    });
+    this.currentCells = [];
+    this.isDrawing = false;
   }
 
   resetCellsAndMarkers() {
-    this.currentHexagons.forEach(layer => {
+    this.currentCells.forEach(layer => {
       if (layer instanceof L.Polygon) {
         layer.off('mouseover');
         layer.off('mouseout');
@@ -47,28 +34,23 @@ class HexagonMap {
       }
       this.map.removeLayer(layer);
     });
-    // リセット後、配列を空にする
-    this.currentHexagons = [];
+    this.currentCells = [];
   }
 
-  drawHexagons() {
+  drawCells() {
     if (this.isDrawing) {
       console.log("描画処理中のため、新たな描画処理は実行されません。");
       return;
     }
     this.isDrawing = true;
 
-    this.currentHexagons.forEach(polygon => {
+    this.currentCells.forEach(polygon => {
       polygon.closeTooltip();
     });
 
     const drawProcess = async () => {
       try {
-        if (this.mode === 'H3') {
-          this.drawH3Hexagons();
-        } else if (this.mode === 'S2') {
-          await this.drawS2Cells();
-        }
+        await this.drawS2Cells();
       } catch (error) {
         console.error("描画中にエラーが発生しました:", error);
       } finally {
@@ -85,67 +67,44 @@ class HexagonMap {
     const centerLat = center.lat;
     const centerLng = center.lng;
 
-    const sortedResolutions = [...this.resolutions].sort((a, b) => a - b);
-    this.highestResolution = Math.max(...this.resolutions);
+    const latLng = S2LatLng.from(centerLat, centerLng);
+    const cell = S2Cell.fromLatLng(latLng, this.resolution);
+    const cells = this.getS2Neighbors(cell, this.maxCells);
+    const cell_ids = cells.map(cell => cell.toInteger().toString());
 
-    if (sortedResolutions.length > 1) {
-      const lowestResolution = sortedResolutions[0];
-      const latLng = S2LatLng.from(centerLat, centerLng);
-      const cell = S2Cell.fromLatLng(latLng, lowestResolution);
-      const baseCells = this.getS2Neighbors(cell, this.maxCells);
+    // API request
+    const fetch_cell_ids = cell_ids.filter(cell_id => {
+      return !this.currentCells.some(polygon => polygon.options.cell_id === cell_id);
+    });
+    const cells_stats = await api.getCells(fetch_cell_ids);
 
-      this.colorMap.clear();
-      baseCells.forEach(baseCell => {
-        const baseKey = baseCell.toInteger();
-        this.colorMap.set(baseKey, this.getRandomColor());
-      });
-    }
+    // draw cells
+    for (const currentCell of cells) {
+      const cell_id = currentCell.toInteger().toString();
+      if (this.currentCells.find(polygon => polygon.options.cell_id === cell_id)) {
+        continue;
+      }
 
-    for (const resolution of sortedResolutions) {
-      const latLng = S2LatLng.from(centerLat, centerLng);
-      const cell = S2Cell.fromLatLng(latLng, resolution);
-      const cells = this.getS2Neighbors(cell, this.maxCells);
-      const cell_ids = cells.map(cell => cell.toInteger().toString());
-
-      // API request
-      const fetch_cell_ids = cell_ids.filter(cell_id => {
-        return !this.currentHexagons.some(polygon => polygon.options.cell_id === cell_id);
-      });
-      const cells_stats = await api.getCells(fetch_cell_ids);
-
-      // draw cells
-      for (const currentCell of cells) {
-        const cell_id = currentCell.toInteger().toString();
-        if (this.currentHexagons.find(polygon => polygon.options.cell_id === cell_id)) {
-          continue;
-        }
-
-        const corners = Array.from(currentCell.getCornerLatLngs());
-
-        const scaledCorners = this.scaleBoundary(
-          corners.map(corner => [corner.lng, corner.lat]),
-          0.99
-        );
-
-        const cell_stats = cells_stats.find(cell => cell.cell_id === cell_id);
-        let stats = cell_stats;
-        let fillColor = 'transparent';
-        if (cell_stats) {
-          fillColor = this.config.COLORS[cell_stats.level];
-          if (cell_stats.level === 0 && cell_stats.score <= 0) {
-            fillColor = 'gray';
-          }
-        }
-        const polygon = scaledCorners.map(([lng, lat]) => [lat, lng]);
-        this.addPolygon(cell_id, polygon, fillColor, stats);
-
-        if (this.showIndex) {
-          const center = currentCell.toLatLng();
-          this.addIndexMarker([center.lat, center.lng], cell_id);
+      const cell_stats = cells_stats.find(cell => cell.cell_id === cell_id);
+      let fillColor = 'transparent';
+      if (cell_stats) {
+        fillColor = this.config.COLORS[cell_stats.level];
+        if (cell_stats.level === 0 && cell_stats.score <= 0) {
+          fillColor = 'gray';
         }
       }
+
+      // ちょっとだけセルを小さくする
+      const corners = Array.from(currentCell.getCornerLatLngs());
+      const scaledCorners = this.scaleBoundary(
+        corners.map(corner => [corner.lng, corner.lat]),
+        0.99
+      );
+      // セルの描画
+      const polygon = scaledCorners.map(([lng, lat]) => [lat, lng]);
+      this.addPolygon(cell_id, polygon, fillColor, cell_stats);
     }
-    console.log(this.currentHexagons.length);
+    console.log(this.currentCells.length);
   }
 
   getS2Neighbors(cell, maxCells) {
@@ -173,58 +132,6 @@ class HexagonMap {
     return neighbors;
   }
 
-  drawH3Hexagons() {
-    const center = this.map.getCenter();
-    const centerLat = center.lat;
-    const centerLng = center.lng;
-
-    const sortedResolutions = [...this.resolutions].sort((a, b) => a - b);
-    this.highestResolution = Math.max(...this.resolutions);
-
-    if (sortedResolutions.length > 1) {
-      const lowestResolution = sortedResolutions[0];
-      const h3Index = window.h3.geoToH3(centerLat, centerLng, lowestResolution);
-      const baseHexagons = window.h3.kRing(h3Index, this.config.MAX_CELLS);
-
-      this.colorMap.clear();
-      baseHexagons.forEach(hex => {
-        this.colorMap.set(hex, this.getRandomColor());
-      });
-    }
-
-    sortedResolutions.forEach(resolution => {
-      const h3Index = window.h3.geoToH3(centerLat, centerLng, resolution);
-      const hexagons = window.h3.kRing(h3Index, this.config.MAX_CELLS);
-
-      hexagons.forEach(hex => {
-        let hexBoundary = window.h3.h3ToGeoBoundary(hex, true);
-
-        if (hexBoundary.some(([lng]) => lng > 90 || lng < -90)) {
-          hexBoundary = HexagonMap.normalizeLongitudeTo360(hexBoundary);
-        }
-
-        // 内側に縮小した境界を取得
-        const scaledBoundary = this.scaleBoundary(hexBoundary, 0.99);
-
-        let fillColor;
-        if (sortedResolutions.length > 1) {
-          const baseHex = window.h3.h3ToParent(hex, sortedResolutions[0]);
-          fillColor = this.colorMap.get(baseHex) || this.getRandomColor();
-        } else {
-          fillColor = this.getRandomColor();
-        }
-
-        const polygon = scaledBoundary.map(([lng, lat]) => [lat, lng]);
-        this.addPolygon("dummy", polygon, fillColor, null);
-
-        if (this.showIndex) {
-          const hexCenter = window.h3.h3ToGeo(hex);
-          this.addIndexMarker(hexCenter, hex);
-        }
-      });
-    });
-  }
-
   scaleBoundary(boundary, scaleFactor) {
     const center = this.getPolygonCenter(boundary);
     return boundary.map(([lng, lat]) => {
@@ -245,7 +152,6 @@ class HexagonMap {
 
   addPolygon(cell_id, latlngs, color, stats) {
     let fillColor = color;
-    if (!this.showFillColor) { fillColor = 'transparent'; }
     const polygon = L.polygon(latlngs, {
       cell_id: cell_id,
       stats: stats,
@@ -256,14 +162,7 @@ class HexagonMap {
       weight: 1.5,
     }).addTo(this.map);
 
-    // // すでに cell_id が存在している場合はあらかじめ削除する
-    // this.currentHexagons.forEach(polygon => {
-    //   if (polygon.options.cell_id === cell_id) {
-    //     polygon.remove();
-    //   }
-    // });
-
-    this.currentHexagons.push(polygon);
+    this.currentCells.push(polygon);
 
     if (stats) {
       const center = polygon.getBounds().getCenter();
@@ -294,77 +193,6 @@ class HexagonMap {
       });
     }
   }
-
-  getRandomColor() {
-    return this.config.COLORS[Math.floor(Math.random() * this.config.COLORS.length)];
-  }
-
-  setMaxCells(newMaxCells) {
-    this.maxCells = newMaxCells;
-    this.drawHexagons();
-  }
-
-  setResolutions(newResolutions) {
-    this.resolutions = newResolutions;
-    this.drawHexagons();
-  }
-
-  addVertexMarkers(boundary) {
-    if (!this.showCoordinates) return;
-    boundary.forEach(([lng, lat]) => {
-      const coordinateLabel = L.divIcon({
-        className: 'vertex-label',
-        html: `<div style="font-size: 10px; color: blue;">${lat.toFixed(4)}, ${lng.toFixed(4)}</div>`,
-      });
-      const marker = L.marker([lat, lng], { icon: coordinateLabel }).addTo(this.map);
-      this.currentHexagons.push(marker);
-    });
-  }
-
-  addIndexMarker(center, index) {
-    const h3Label = L.divIcon({
-      className: 'h3-label',
-      html: `<div style="text-align: center; font-size: 10px; color: black;">${index}</div>`,
-    });
-    const marker = L.marker([center[0], center[1]], { icon: h3Label }).addTo(this.map);
-    this.currentHexagons.push(marker);
-  }
-
-  handleMapClick(lat, lng) {
-    const h3Index = window.h3.geoToH3(lat, lng, this.highestResolution);
-    const [centerLat, centerLng] = window.h3.h3ToGeo(h3Index);
-
-    const cellColor = this.colorMap.get(h3Index) || 'gray';
-    this.addMarkerAtHexCenter(centerLat, centerLng, cellColor);
-  }
-
-  addMarkerAtHexCenter(lat, lng, color) {
-    L.marker([lat, lng]).addTo(this.map);
-  }
-
-  getRandomColor() {
-    return this.config.COLORS[Math.floor(Math.random() * this.config.COLORS.length)];
-  }
-
-  setMode(mode) {
-    this.mode = mode;
-    this.drawHexagons();
-  }
-
-  setResolution(newResolution) {
-    this.resolution = newResolution;
-    this.drawHexagons();
-  }
-
-  toggleFillColorDisplay(value) {
-    this.showFillColor = value;
-    this.drawHexagons();
-  }
-
-  toggleIndexDisplay(value) {
-    this.showIndex = value;
-    this.drawHexagons();
-  }
 }
 
 const map = L.map('map', {
@@ -372,10 +200,9 @@ const map = L.map('map', {
   maxZoom: CONFIG.MAX_ZOOM,
 }).setView([CONFIG.DEFAULT_LAT, CONFIG.DEFAULT_LNG], CONFIG.DEFAULT_ZOOM);
 
-// L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+L.tileLayer(CONFIG.TILE_LAYER.url, {
   maxZoom: CONFIG.MAX_ZOOM,
-  attribution: '© OpenStreetMap contributors',
+  attribution: CONFIG.TILE_LAYER.copyright,
 }).addTo(map);
 
 function updateZoomLevel() {
@@ -383,10 +210,9 @@ function updateZoomLevel() {
   document.getElementById('zoom-level').textContent = zoomLevel;
 }
 
-function addMarkerAtHexCenter(lat, lng) {
-  const h3Index = window.h3.geoToH3(lat, lng, HIGHEST_RESOLUTION);
-  const [centerLat, centerLng] = window.h3.h3ToGeo(h3Index);
-  L.marker([centerLat, centerLng]).addTo(map);
+function setMaxCells(newMaxCells) {
+  cellMap.maxCells = newMaxCells;
+  cellMap.drawCells();
 }
 
 async function moveToCurrentLocation() {
@@ -416,56 +242,21 @@ async function moveToLocation(lat, lng) {
   map.setView([lat, lng]);
 }
 
-const hexagonMap = new HexagonMap(map, CONFIG);
+const cellMap = new CellMap(map, CONFIG);
 
-map.on('moveend', () => { hexagonMap.drawHexagons(); });
+map.on('moveend', () => { cellMap.drawCells(); });
 map.on('zoomend', updateZoomLevel);
-map.on('click', (e) => {
-  const { lat, lng } = e.latlng;
-  hexagonMap.handleMapClick(lat, lng);
-});
 
-// document.querySelectorAll('input[name="mode"]').forEach(radio => {
-//   radio.addEventListener('change', (event) => {
-//     const selectedMode = event.target.value;
-//     hexagonMap.setMode(selectedMode);
-//   });
-// });
-
-// document.querySelectorAll('.resolution-checkbox').forEach(checkbox => {
-//   checkbox.addEventListener('change', () => {
-//     const selectedResolutions = Array.from(document.querySelectorAll('.resolution-checkbox:checked'))
-//       .map(input => parseInt(input.value, 10));
-//     hexagonMap.setResolutions(selectedResolutions);
-//   });
-// });
-
-// document.getElementById('show-fill-color-checkbox').addEventListener('change', (event) => {
-//   hexagonMap.toggleFillColorDisplay(event.target.checked);
-// });
-
-// document.getElementById("show-index-checkbox").addEventListener("change", (event) => {
-//   hexagonMap.toggleIndexDisplay(event.target.checked);
-// });
-
-// document.getElementById("show-coordinates-checkbox").addEventListener("change", (event) => {
-//   hexagonMap.toggleCoordinatesDisplay(event.target.checked);
-// });
-
+document.getElementById('locate-sjk-btn').addEventListener('click', () => { moveToLocation(cellMap.config.DEFAULT_LAT, cellMap.config.DEFAULT_LNG); });
+document.getElementById('locate-current-btn').addEventListener('click', () => { moveToCurrentLocation(); });
+document.getElementById('reset-btn').addEventListener('click', () => { cellMap.resetCellsAndMarkers(); });
 document.getElementById('max-cells-slider').addEventListener('input', (event) => {
   const maxCells = parseInt(event.target.value, 10);
   document.getElementById('max-cells-value').textContent = maxCells;
-  hexagonMap.setMaxCells(maxCells);
+  setMaxCells(maxCells);
 });
-
-document.getElementById('locate-sjk-btn').addEventListener('click', () => { moveToLocation(hexagonMap.config.DEFAULT_LAT, hexagonMap.config.DEFAULT_LNG); });
-document.getElementById('locate-current-btn').addEventListener('click', () => { moveToCurrentLocation(); });
-
-document.getElementById('reset-btn').addEventListener('click', () => { hexagonMap.resetCellsAndMarkers(); });
-
 document.getElementById('search-form').addEventListener('submit', async (e) => {
   e.preventDefault(); // フォーム送信によるページリロードを防ぐ
-
   const query = document.getElementById('search-input').value;
   if (!query) {
     alert('検索ワードを入力してください。');
@@ -514,6 +305,7 @@ toggleBtn.addEventListener('click', () => {
 // === API
 class Api {
   constructor() {
+    // FIXME
     // this.url = 'http://localhost:3000/api';
     this.url = "https://us-central1-firebase-functions-api-343106.cloudfunctions.net/circle_proxy";
   }
@@ -552,4 +344,4 @@ class Api {
 
 // === main routine
 updateZoomLevel();
-hexagonMap.drawHexagons();
+cellMap.drawCells();
