@@ -97,24 +97,66 @@ class CellMap {
     console.log("現在のセル数:", this.currentCells.length);
   }
 
-  getS2Neighbors(cell, maxCells) {
-    const neighbors = [cell];
-    const visited = new Set([cell.toInteger()]);
-    const queue = [cell];
+  // 例：CellMap クラス内の新しい getS2Neighbors メソッド
 
-    while (queue.length > 0 && neighbors.length < maxCells) {
+  getS2Neighbors(centerCell, maxCells) {
+    // BFS で候補セルを幅広く収集（余裕をもって maxCells の 3 倍程度集める）
+    const visited = new Set();
+    const candidates = [];
+    const queue = [centerCell];
+    visited.add(centerCell.toInteger());
+
+    while (queue.length > 0 && candidates.length < maxCells * 3) {
       const current = queue.shift();
+      candidates.push(current);
+
       for (const neighbor of current.getNeighbors()) {
         const neighborId = neighbor.toInteger();
         if (!visited.has(neighborId)) {
-          neighbors.push(neighbor);
-          queue.push(neighbor);
           visited.add(neighborId);
+          queue.push(neighbor);
         }
-        if (neighbors.length >= maxCells) break;
       }
     }
-    return neighbors;
+
+    // 中心セルの中心座標を取得（getCellCenter は下記のヘルパー関数）
+    const centerCoord = this.getCellCenter(centerCell);
+
+    // 候補セルを中心からの距離でソート
+    candidates.sort((a, b) => {
+      const aCenter = this.getCellCenter(a);
+      const bCenter = this.getCellCenter(b);
+      return this.haversineDistance(centerCoord.lat, centerCoord.lng, aCenter.lat, aCenter.lng) -
+        this.haversineDistance(centerCoord.lat, centerCoord.lng, bCenter.lat, bCenter.lng);
+    });
+
+    // 上位 maxCells 個を返す
+    return candidates.slice(0, maxCells);
+  }
+
+  // -----------------------------------------
+  // セルの中心座標を算出するヘルパー関数
+  getCellCenter(cell) {
+    // cell.getCornerLatLngs() は各頂点の LatLng オブジェクトの iterable と仮定
+    // ここでは各頂点の [lng, lat] の配列に変換し、getPolygonCenter を利用
+    const corners = Array.from(cell.getCornerLatLngs()).map(corner => [corner.lng, corner.lat]);
+    const center = this.getPolygonCenter(corners);  // [lng, lat] の配列を返す
+    return { lat: center[1], lng: center[0] };
+  }
+
+  // -----------------------------------------
+  // Haversine 公式による2点間の距離計算（km 単位）
+  haversineDistance(lat1, lng1, lat2, lng2) {
+    const R = 6371; // 地球の半径 (km)
+    const toRad = deg => deg * Math.PI / 180;
+
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
   }
 
   scaleBoundary(boundary, scaleFactor) {
