@@ -9,11 +9,12 @@ const CONFIG = {
   COLORS: ['khaki', 'cyan', 'blue', 'pink'],
   // TILE_LAYER: {url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', copyright: "© OpenStreetMap contributors"},
   TILE_LAYER: { url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', copyright: "© OpenStreetMap contributors" },
+  PROXY_URL: "https://us-central1-firebase-functions-api-343106.cloudfunctions.net/circle_proxy"
 };
 
 class CellMap {
-  constructor(map, config) {
-    this.map = map;
+  constructor(base_map, config) {
+    this.map = base_map.map;
     this.config = config;
     this.resolution = config.DEFAULT_RESOLUTION;
     this.maxCells = config.MAX_CELLS;
@@ -104,7 +105,7 @@ class CellMap {
       const polygon = scaledCorners.map(([lng, lat]) => [lat, lng]);
       this.addPolygon(cell_id, polygon, fillColor, cell_stats);
     }
-    console.log(this.currentCells.length);
+    console.log("current cells:", this.currentCells.length);
   }
 
   getS2Neighbors(cell, maxCells) {
@@ -195,119 +196,61 @@ class CellMap {
   }
 }
 
-const map = L.map('map', {
-  minZoom: CONFIG.MIN_ZOOM,
-  maxZoom: CONFIG.MAX_ZOOM,
-}).setView([CONFIG.DEFAULT_LAT, CONFIG.DEFAULT_LNG], CONFIG.DEFAULT_ZOOM);
+class BaseMap {
+  constructor(config) {
+    this.map = L.map('map', {
+      minZoom: config.MIN_ZOOM,
+      maxZoom: config.MAX_ZOOM,
+    }).setView([config.DEFAULT_LAT, config.DEFAULT_LNG], config.DEFAULT_ZOOM);
 
-L.tileLayer(CONFIG.TILE_LAYER.url, {
-  maxZoom: CONFIG.MAX_ZOOM,
-  attribution: CONFIG.TILE_LAYER.copyright,
-}).addTo(map);
-
-function updateZoomLevel() {
-  const zoomLevel = map.getZoom();
-  document.getElementById('zoom-level').textContent = zoomLevel;
-}
-
-function setMaxCells(newMaxCells) {
-  cellMap.maxCells = newMaxCells;
-  cellMap.drawCells();
-}
-
-async function moveToCurrentLocation() {
-  if ('geolocation' in navigator) {
-    try {
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject);
-      });
-      const { latitude, longitude } = position.coords;
-
-      // 地図を現在位置に移動
-      map.setView([latitude, longitude], CONFIG.DEFAULT_ZOOM);
-
-      // 現在位置にマーカーを追加
-      L.marker([latitude, longitude]).addTo(map)
-        .bindPopup('現在位置')
-        .openPopup();
-    } catch (error) {
-      alert('位置情報を取得できませんでした: ' + error.message);
-    }
-  } else {
-    alert('このブラウザではGPSがサポートされていません');
-  }
-}
-
-async function moveToLocation(lat, lng) {
-  map.setView([lat, lng]);
-}
-
-const cellMap = new CellMap(map, CONFIG);
-
-map.on('moveend', () => { cellMap.drawCells(); });
-map.on('zoomend', updateZoomLevel);
-
-document.getElementById('locate-sjk-btn').addEventListener('click', () => { moveToLocation(cellMap.config.DEFAULT_LAT, cellMap.config.DEFAULT_LNG); });
-document.getElementById('locate-current-btn').addEventListener('click', () => { moveToCurrentLocation(); });
-document.getElementById('reset-btn').addEventListener('click', () => { cellMap.resetCellsAndMarkers(); });
-document.getElementById('max-cells-slider').addEventListener('input', (event) => {
-  const maxCells = parseInt(event.target.value, 10);
-  document.getElementById('max-cells-value').textContent = maxCells;
-  setMaxCells(maxCells);
-});
-document.getElementById('search-form').addEventListener('submit', async (e) => {
-  e.preventDefault(); // フォーム送信によるページリロードを防ぐ
-  const query = document.getElementById('search-input').value;
-  if (!query) {
-    alert('検索ワードを入力してください。');
-    return;
+    L.tileLayer(config.TILE_LAYER.url, {
+      maxZoom: config.MAX_ZOOM,
+      attribution: config.TILE_LAYER.copyright,
+    }).addTo(this.map);
   }
 
-  try {
-    // Nominatim API を利用したジオコーディング
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! Status: ${response.status}`);
-    }
-    const results = await response.json();
-    if (results.length === 0) {
-      alert('該当する地点が見つかりませんでした。');
-      return;
-    }
-    // 最初の検索結果を利用（複数候補がある場合は、リスト表示や選択肢を設けるなどの工夫も可能）
-    const result = results[0];
-    const lat = parseFloat(result.lat);
-    const lon = parseFloat(result.lon);
-
-    // 地図の中心を検索結果の位置に設定
-    map.setView([lat, lon], CONFIG.DEFAULT_ZOOM);
-
-    // 移動先にマーカーを追加（必要に応じて）
-    L.marker([lat, lon])
-      .addTo(map)
-      .bindPopup(`${result.display_name}`)
-      .openPopup();
-  } catch (error) {
-    console.error('検索中にエラーが発生しました:', error);
-    alert('検索中にエラーが発生しました。');
+  updateZoomLevel() {
+    const zoomLevel = this.map.getZoom();
+    document.getElementById('zoom-level').textContent = zoomLevel;
   }
-});
 
-const controlsContainer = document.getElementById('controls-container');
-const toggleBtn = document.getElementById('toggle-controls-btn');
+  setMaxCells(newMaxCells) {
+    cellMap.maxCells = newMaxCells;
+    cellMap.drawCells();
+  }
 
-toggleBtn.addEventListener('click', () => {
-  const isHidden = controlsContainer.classList.toggle('hidden');
-  toggleBtn.textContent = isHidden ? '▼' : '▲';
-});
+  async moveToCurrentLocation() {
+    if ('geolocation' in navigator) {
+      try {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject);
+        });
+        const { latitude, longitude } = position.coords;
+
+        // 地図を現在位置に移動
+        this.map.setView([latitude, longitude], CONFIG.DEFAULT_ZOOM);
+
+        // 現在位置にマーカーを追加
+        L.marker([latitude, longitude]).addTo(this.map)
+          .bindPopup('現在位置')
+          .openPopup();
+      } catch (error) {
+        alert('位置情報を取得できませんでした: ' + error.message);
+      }
+    } else {
+      alert('このブラウザではGPSがサポートされていません');
+    }
+  }
+
+  async moveToLocation(lat, lng) {
+    this.map.setView([lat, lng]);
+  }
+}
 
 // === API
 class Api {
   constructor() {
-    // FIXME
-    // this.url = 'http://localhost:3000/api';
-    this.url = "https://us-central1-firebase-functions-api-343106.cloudfunctions.net/circle_proxy";
+    this.url = CONFIG.PROXY_URL;
   }
 
   async getCells(cell_ids) {
@@ -317,6 +260,7 @@ class Api {
     }
 
     try {
+      console.log("API request. fetch new cell length:", cell_ids.length);
       const response = await fetch(
         this.url,
         {
@@ -332,16 +276,90 @@ class Api {
       }
 
       const result = await response.json();
-      // console.log('API のレスポンス:', result);
       return result;
     } catch (error) {
-      // console.error('エラーが発生しました:', error);
       return [];
-      //throw error;
     }
   }
 }
 
+class UiController {
+  constructor(baseMap, cellMap) {
+    this.addEventListeners(baseMap, cellMap);
+  }
+
+  addEventListeners(baseMap, cellMap) {
+    baseMap.map.on('moveend', () => { cellMap.drawCells(); });
+    baseMap.map.on('zoomend', () => { baseMap.updateZoomLevel() });
+
+    const toggleBtn = document.getElementById('toggle-controls-btn');
+    toggleBtn.addEventListener('click', () => {
+      const controlsContainer = document.getElementById('controls-container');
+      const isHidden = controlsContainer.classList.toggle('hidden');
+      toggleBtn.textContent = isHidden ? '▼' : '▲';
+    });
+
+    document.getElementById('locate-sjk-btn').addEventListener('click', () => {
+      baseMap.moveToLocation(cellMap.config.DEFAULT_LAT, cellMap.config.DEFAULT_LNG);
+    });
+    document.getElementById('locate-current-btn').addEventListener('click', () => {
+      baseMap.moveToCurrentLocation();
+    });
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      cellMap.resetCellsAndMarkers();
+    });
+    document.getElementById('max-cells-slider').addEventListener('input', (event) => {
+      const maxCells = parseInt(event.target.value, 10);
+      document.getElementById('max-cells-value').textContent = maxCells;
+      baseMap.setMaxCells(maxCells);
+    });
+    document.getElementById('search-form').addEventListener('submit', async (e) => {
+      e.preventDefault(); // フォーム送信によるページリロードを防ぐ
+      const query = document.getElementById('search-input').value;
+      if (!query) {
+        alert('検索ワードを入力してください。');
+        return;
+      }
+
+      try {
+        // Nominatim API を利用したジオコーディング
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        const results = await response.json();
+        if (results.length === 0) {
+          alert('該当する地点が見つかりませんでした。');
+          return;
+        }
+        // 最初の検索結果を利用（複数候補がある場合は、リスト表示や選択肢を設けるなどの工夫も可能）
+        const result = results[0];
+        const lat = parseFloat(result.lat);
+        const lon = parseFloat(result.lon);
+
+        // 地図の中心を検索結果の位置に設定
+        const map = baseMap.map;
+        map.setView([lat, lon], CONFIG.DEFAULT_ZOOM);
+
+        // 移動先にマーカーを追加（必要に応じて）
+        L.marker([lat, lon])
+          .addTo(map)
+          .bindPopup(`${result.display_name}`)
+          .openPopup();
+      } catch (error) {
+        console.error('検索中にエラーが発生しました:', error);
+        alert('検索中にエラーが発生しました。');
+      }
+    });
+  }
+}
+
 // === main routine
-updateZoomLevel();
+const baseMap = new BaseMap(CONFIG);
+const cellMap = new CellMap(baseMap, CONFIG);
+const uiController = new UiController(baseMap, cellMap);
+
+// 起動時に取得する
+baseMap.updateZoomLevel();
 cellMap.drawCells();
