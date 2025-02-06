@@ -59,45 +59,68 @@ class CellMap {
 
   async drawS2Cells() {
     const api = new Api();
+    const cellCache = new CellCache();
+
     const center = this.map.getCenter();
     const latLng = S2LatLng.from(center.lat, center.lng);
-    const cell = S2Cell.fromLatLng(latLng, this.resolution);
-    const cells = this.getS2Neighbors(cell, this.maxCells);
-    const cellIds = cells.map(c => c.toInteger().toString());
+    const centerCell = S2Cell.fromLatLng(latLng, this.resolution);
+    const cells = this.getS2Neighbors(centerCell, this.maxCells);
 
-    // APIリクエスト：まだ描画されていないセルIDのみ対象
-    const fetchCellIds = cellIds.filter(id =>
-      !this.currentCells.some(polygon => polygon.options.cellId === id)
-    );
-    const cellsStats = await api.getCells(fetchCellIds);
+    // キャッシュチェック
+    const missingCellIds = [];
+    const validCellsData = [];
+    cells.forEach(cell => {
+      const cellId = cell.toInteger().toString();
+      const cached = cellCache.getCell(cellId) || this.currentCells.find(polygon => polygon.options.cellId === cellId)?.options;
+      if (cached) {
+        validCellsData.push(cached);
+      } else {
+        missingCellIds.push(cellId);
+      }
+    });
 
-    cells.forEach(currentCell => {
-      const cellId = currentCell.toInteger().toString();
-      if (this.currentCells.find(polygon => polygon.options.cellId === cellId)) return;
+    let fetchedCells = [];
+    if (missingCellIds.length > 0) {
+      fetchedCells = await api.getCells(missingCellIds);
 
-      const cellStats = cellsStats.find(stat => stat.cell_id === cellId);
+      fetchedCells.forEach(cellData => {
+        cellCache.setCell(cellData.cell_id, cellData);
+      });
+    }
+
+    cells.forEach(cell => {
+      const cellId = cell.toInteger().toString();
+      const cachedCellData = cellCache.getCell(cellId);
+      let cellData;
+      if (cachedCellData) {
+        cellData = cachedCellData;
+      } else {
+        const fetchedCellData = fetchedCells.find(cellData => cellId === cellData.cell_id);
+        if (fetchedCellData) {
+          cellData = fetchedCellData;
+        }
+      }
+      if (this.currentCells.find(polygon => polygon.options.cellId === cellData?.cell_id)) return;
+
       let fillColor = 'transparent';
-      if (cellStats) {
-        fillColor = this.config.COLORS[cellStats.level] || fillColor;
-        if (cellStats.level === 0 && cellStats.score <= 0) {
+      if (cellData) {
+        fillColor = this.config.COLORS[cellData.level] || fillColor;
+        if (cellData.level === 0 && cellData.score <= 0) {
           fillColor = 'gray';
         }
       }
 
-      // セルの境界を若干縮小して重なりを防止
-      const corners = Array.from(currentCell.getCornerLatLngs());
+      const corners = Array.from(cell.getCornerLatLngs());
       const scaledCorners = this.scaleBoundary(
         corners.map(corner => [corner.lng, corner.lat]),
         0.99
       );
       const polygonLatLngs = scaledCorners.map(([lng, lat]) => [lat, lng]);
-      this.addPolygon(cellId, polygonLatLngs, fillColor, cellStats);
-    });
 
+      this.addPolygon(cellId, polygonLatLngs, fillColor, cellData);
+    });
     console.log("現在のセル数:", this.currentCells.length);
   }
-
-  // 例：CellMap クラス内の新しい getS2Neighbors メソッド
 
   getS2Neighbors(centerCell, maxCells) {
     // BFS で候補セルを幅広く収集（余裕をもって maxCells の 3 倍程度集める）
@@ -119,7 +142,6 @@ class CellMap {
       }
     }
 
-    // 中心セルの中心座標を取得（getCellCenter は下記のヘルパー関数）
     const centerCoord = this.getCellCenter(centerCell);
 
     // 候補セルを中心からの距離でソート
@@ -178,6 +200,8 @@ class CellMap {
   }
 
   addPolygon(cellId, latlngs, color, stats) {
+    // すでに同じ cellId のポリゴンが存在する場合はスキップ
+    if (this.currentCells.find(polygon => polygon.options.cellId === cellId)) return;
     const polygon = L.polygon(latlngs, {
       cellId: cellId,
       stats: stats,
@@ -213,6 +237,77 @@ class CellMap {
 
       polygon.on('mouseout', () => polygon.closeTooltip());
     }
+  }
+}
+
+class CellCache {
+  constructor(storageKey = 'cellCache', expirationTime = 3600000, saveDelay = 1000) { // expirationTime: 1時間, saveDelay: 1秒
+    this.storageKey = storageKey;
+    this.expirationTime = expirationTime;
+    this.cache = new Map();
+    this.loadCache();
+
+    // 保存のデバウンス用タイマー
+    this.saveDelay = saveDelay;
+    this.saveTimeout = null;
+  }
+
+  loadCache() {
+    const data = localStorage.getItem(this.storageKey);
+    if (data) {
+      try {
+        console.log('load cache:', Object.keys(JSON.parse(data)).length);
+        const parsed = JSON.parse(data);
+        for (const key in parsed) {
+          this.cache.set(key, parsed[key]);
+        }
+      } catch (e) {
+        console.error('キャッシュの読み込みに失敗しました:', e);
+      }
+    }
+  }
+
+  scheduleSave() {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+    }
+    this.saveTimeout = setTimeout(() => {
+      this.saveCache();
+    }, this.saveDelay);
+  }
+
+  saveCache() {
+    try {
+      const obj = Object.fromEntries(this.cache);
+      localStorage.setItem(this.storageKey, JSON.stringify(obj));
+    } catch (e) {
+      console.error('キャッシュの保存に失敗しました:', e);
+    }
+  }
+
+  // セルデータが有効かどうか判定
+  isValid(cellData) {
+    return (Date.now() - cellData.timestamp < this.expirationTime);
+  }
+
+  // 指定 cellId のセルデータを取得（存在し、有効なら返す）
+  getCell(cellId) {
+    const cellData = this.cache.get(cellId);
+    if (cellData && this.isValid(cellData)) {
+      return cellData;
+    } else if (cellData) {
+      // 有効期限切れの場合は削除
+      this.cache.delete(cellId);
+      this.saveCache();
+    }
+    return null;
+  }
+
+  // セルデータをキャッシュに保存（タイムスタンプをセット）
+  setCell(cellId, cellData) {
+    cellData.timestamp = Date.now();
+    this.cache.set(cellId, cellData);
+    this.saveCache();
   }
 }
 
@@ -329,6 +424,10 @@ class UiController {
     if (resetBtn) {
       resetBtn.addEventListener('click', () => {
         this.cellMap.resetCellsAndMarkers();
+        // cache もクリアする
+        const cellCache = new CellCache();
+        cellCache.cache.clear();
+        cellCache.saveCache();
       });
     }
 
