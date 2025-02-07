@@ -119,7 +119,39 @@ class CellMap {
 
       this.addPolygon(cellId, polygonLatLngs, fillColor, cellData);
     });
+    this.updateCellStats();
     console.log("現在のセル数:", this.currentCells.length);
+  }
+
+  updateCellStats() {
+    const zoomLevel = this.map.getZoom();
+
+    if (zoomLevel <= 16) {
+      for (const polygon of this.currentCells) {
+        if (polygon.statsMarker) {
+          this.map.removeLayer(polygon.statsMarker);
+          polygon.statsMarker = null;
+        }
+      }
+      return;
+    }
+
+    for (const polygon of this.currentCells) {
+      const stats = polygon.options.stats;
+      if (!stats || polygon.statsMarker) continue;
+
+      const center = polygon.getBounds().getCenter();
+      polygon.statsMarker = L.marker(
+        [center.lat, center.lng], {
+        icon: L.divIcon({
+          className: 'stats-marker',
+          html: `level ${stats.level}<br/>score ${stats.score}`,
+          iconSize: [100, 50],
+          iconAnchor: [20, 10]
+        },),
+        interactive: false,
+      }).addTo(this.map);
+    }
   }
 
   getS2Neighbors(centerCell, maxCells) {
@@ -215,17 +247,6 @@ class CellMap {
     this.currentCells.push(polygon);
 
     if (stats) {
-      const center = polygon.getBounds().getCenter();
-      const content = `level ${stats.level}<br/>score ${stats.score}`;
-      const statsIcon = L.divIcon({
-        className: 'stats-marker',
-        html: `<pre style="margin:0;">${content}</pre>`,
-        iconSize: [100, 50],
-        iconAnchor: [20, 10]
-      });
-      const marker = L.marker(center, { icon: statsIcon, interactive: false }).addTo(this.map);
-      polygon.statsMarker = marker;
-
       polygon.on('mouseover', e => {
         const tooltipContent = typeof stats === 'object' ? JSON.stringify(stats, null, 2) : stats;
         polygon.bindTooltip(`<pre>${tooltipContent}</pre>`, {
