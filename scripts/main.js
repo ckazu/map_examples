@@ -6,7 +6,8 @@ const CONFIG = {
   MAX_ZOOM: 22,
   DEFAULT_RESOLUTION: 17,
   MAX_CELLS: 100,
-  COLORS: ['khaki', 'cyan', 'blue', 'pink'],
+  COLORS: ['khaki', 'cyan', 'blue', 'pink', 'red'],
+  // TILE_LAYER: {url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', copyright: "© OpenStreetMap contributors"},
   TILE_LAYER: { url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', copyright: "© OpenStreetMap contributors" },
   PROXY_URL: "https://us-central1-firebase-functions-api-343106.cloudfunctions.net/circle_proxy"
 };
@@ -19,10 +20,6 @@ class CellMap {
     this.maxCells = config.MAX_CELLS;
     this.currentCells = [];
     this.isDrawing = false;
-  }
-
-  static get SCALE_FACTOR() {
-    return 0.99;
   }
 
   resetCellsAndMarkers() {
@@ -69,15 +66,7 @@ class CellMap {
     const centerCell = S2Cell.fromLatLng(latLng, this.resolution);
     const cells = this.getS2Neighbors(centerCell, this.maxCells);
 
-    const { validCellsData, missingCellIds } = this.checkCellCache(cells, cellCache);
-    const fetchedCells = await this.fetchMissingCells(missingCellIds, api, cellCache);
-    this.drawPolygons(cells, validCellsData, fetchedCells, cellCache);
-
-    this.updateCellStats();
-    console.log("現在のセル数:", this.currentCells.length);
-  }
-
-  checkCellCache(cells, cellCache) {
+    // キャッシュチェック
     const missingCellIds = [];
     const validCellsData = [];
     cells.forEach(cell => {
@@ -89,10 +78,7 @@ class CellMap {
         missingCellIds.push(cellId);
       }
     });
-    return { validCellsData, missingCellIds };
-  }
 
-  async fetchMissingCells(missingCellIds, api, cellCache) {
     let fetchedCells = [];
     if (missingCellIds.length > 0) {
       fetchedCells = await api.getCells(missingCellIds);
@@ -101,15 +87,19 @@ class CellMap {
         cellCache.setCell(cellData.cell_id, cellData);
       });
     }
-    return fetchedCells;
-  }
 
-  drawPolygons(cells, validCellsData, fetchedCells, cellCache) {
     cells.forEach(cell => {
       const cellId = cell.toInteger().toString();
       const cachedCellData = cellCache.getCell(cellId);
-      let cellData = cachedCellData || fetchedCells.find(c => c.cell_id === cellId);
-
+      let cellData;
+      if (cachedCellData) {
+        cellData = cachedCellData;
+      } else {
+        const fetchedCellData = fetchedCells.find(cellData => cellId === cellData.cell_id);
+        if (fetchedCellData) {
+          cellData = fetchedCellData;
+        }
+      }
       if (this.currentCells.find(polygon => polygon.options.cellId === cellData?.cell_id)) return;
 
       let fillColor = 'transparent';
@@ -123,12 +113,14 @@ class CellMap {
       const corners = Array.from(cell.getCornerLatLngs());
       const scaledCorners = this.scaleBoundary(
         corners.map(corner => [corner.lng, corner.lat]),
-        this.constructor.SCALE_FACTOR
+        0.99
       );
       const polygonLatLngs = scaledCorners.map(([lng, lat]) => [lat, lng]);
 
       this.addPolygon(cellId, polygonLatLngs, fillColor, cellData);
     });
+    this.updateCellStats();
+    console.log("現在のセル数:", this.currentCells.length);
   }
 
   updateCellStats() {
@@ -269,11 +261,8 @@ class CellMap {
   }
 }
 
-const DEFAULT_EXPIRATION_TIME = 3600000; // 1時間
-const DEFAULT_SAVE_DELAY = 1000; // 1秒
-
 class CellCache {
-  constructor(storageKey = 'cellCache', expirationTime = DEFAULT_EXPIRATION_TIME, saveDelay = DEFAULT_SAVE_DELAY) {
+  constructor(storageKey = 'cellCache', expirationTime = 3600000, saveDelay = 1000) { // expirationTime: 1時間, saveDelay: 1秒
     this.storageKey = storageKey;
     this.expirationTime = expirationTime;
     this.cache = new Map();
@@ -339,7 +328,7 @@ class CellCache {
   setCell(cellId, cellData) {
     cellData.timestamp = Date.now();
     this.cache.set(cellId, cellData);
-    this.scheduleSave();
+    this.saveCache();
   }
 }
 
@@ -407,12 +396,10 @@ class Api {
       });
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
-        throw new Error(`HTTP error! Status: ${response.status}`);
       }
       return await response.json();
     } catch (error) {
-      console.error('APIリクエスト中にエラーが発生しました:', error);
-      throw error; // エラーを呼び出し元に投げる
+      return [];
     }
   }
 }
@@ -425,22 +412,10 @@ class UiController {
   }
 
   initializeEventListeners() {
-    this.setupMapEventListeners();
-    this.setupToggleControlsButton();
-    this.setupLocateSjkButton();
-    this.setupLocateCurrentButton();
-    this.setupResetButton();
-    this.setupMaxCellsSlider();
-    this.setupSearchForm();
-  }
-
-  setupMapEventListeners() {
     const mapInstance = this.baseMap.map;
     mapInstance.on('moveend', () => this.cellMap.drawCells());
     mapInstance.on('zoomend', () => this.baseMap.updateZoomLevel());
-  }
 
-  setupToggleControlsButton() {
     const toggleBtn = document.getElementById('toggle-controls-btn');
     if (toggleBtn) {
       toggleBtn.addEventListener('click', () => {
@@ -451,27 +426,21 @@ class UiController {
         }
       });
     }
-  }
 
-  setupLocateSjkButton() {
     const locateSjkBtn = document.getElementById('locate-sjk-btn');
     if (locateSjkBtn) {
       locateSjkBtn.addEventListener('click', () => {
         this.baseMap.moveToLocation(this.cellMap.config.DEFAULT_LAT, this.cellMap.config.DEFAULT_LNG);
       });
     }
-  }
 
-  setupLocateCurrentButton() {
     const locateCurrentBtn = document.getElementById('locate-current-btn');
     if (locateCurrentBtn) {
       locateCurrentBtn.addEventListener('click', () => {
         this.baseMap.moveToCurrentLocation();
       });
     }
-  }
 
-  setupResetButton() {
     const resetBtn = document.getElementById('reset-btn');
     if (resetBtn) {
       resetBtn.addEventListener('click', () => {
@@ -482,9 +451,7 @@ class UiController {
         cellCache.saveCache();
       });
     }
-  }
 
-  setupMaxCellsSlider() {
     const maxCellsSlider = document.getElementById('max-cells-slider');
     if (maxCellsSlider) {
       maxCellsSlider.addEventListener('input', event => {
@@ -497,9 +464,7 @@ class UiController {
         this.cellMap.drawCells();
       });
     }
-  }
 
-  setupSearchForm() {
     const searchForm = document.getElementById('search-form');
     if (searchForm) {
       searchForm.addEventListener('submit', async e => {
