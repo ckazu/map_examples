@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "firebase-functions-api-343106",
+    "staging": "firebase-functions-api-343106"
+  },
+  "targets": {},
+  "etags": {}
+}
