@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hex Map Simulator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Hex Map Simulator</h1>
+        <div class="stats">
+            <div class="stat-item">
+                <span>獲得セル数：</span>
+                <span id="conquered-count">0</span>
+            </div>
+            <div class="stat-item">
+                <span>支配領域：</span>
+                <span id="territory-count">0</span>
+            </div>
+            <div class="stat-item">
+                <span>拠点セル数：</span>
+                <span id="base-count">0</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="controls">
+            <button id="reset-btn">リセット</button>
+            <button id="cancel-operation-btn">操作キャンセル</button>
+            <button id="help-btn">ヘルプ</button>
+            
+            <div id="help-tooltip" class="tooltip">
+                <h3>操作方法：</h3>
+                <ul>
+                    <li><strong>クリック＆ドラッグ：</strong> セルを獲得</li>
+                    <li><strong>ダブルクリック</strong>（獲得済みセル上）： 拠点セル（黄色）を作成</li>
+                    <li><strong>ダブルクリック</strong>（拠点セル上）： 拠点セルのレベルアップ（最大4）</li>
+                    <li><strong>Control + クリック</strong>（拠点セル上）： 拠点の接続開始</li>
+                    <li><strong>Control + Shift + クリック</strong>（拠点セル上）： 三角形接続のための3点目の追加</li>
+                    <li><strong>Shift + クリック</strong>（拠点セル上）： 拠点セルのレベルダウン</li>
+                    <li><strong>Shift + クリック</strong>（獲得済みセル上）： セルの獲得を取り消し</li>
+                </ul>
+                <h3>拠点セルのレベル：</h3>
+                <ul>
+                    <li><strong>レベル1（黄色）：</strong> 基本拠点セル</li>
+                    <li><strong>レベル2（オレンジ）：</strong> 隣接セルを自動獲得</li>
+                    <li><strong>レベル3（赤）：</strong> 半径2範囲のセルを自動獲得</li>
+                    <li><strong>レベル4（ダークレッド）：</strong> 半径3範囲のセルを自動獲得</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="canvas-container">
+            <canvas id="hex-canvas"></canvas>
+        </div>
+        
+        <div class="info-panel">
+            <div class="info-item">
+                <span>モード：</span>
+                <span id="mode-display">獲得モード</span>
+            </div>
+            <div class="info-item">
+                <span>接続：</span>
+                <span id="connection-status">なし</span>
+            </div>
+        </div>
+    </main>
+
+    <!-- 定数 -->
+    <script src="js/constants.js"></script>
+    
+    <!-- ユーティリティ -->
+    <script src="js/hex-utils.js"></script>
+    
+    <!-- グリッド関連 -->
+    <script src="js/hex-grid-state.js"></script>
+    <script src="js/hex-grid-render.js"></script>
+    <script src="js/hex-grid.js"></script>
+    
+    <!-- UI関連 -->
+    <script src="js/ui-manager.js"></script>
+    <script src="js/interaction-handler.js"></script>
+    
+    <!-- メインアプリケーション -->
+    <script src="js/app.js"></script>
+</body>
+</html>
